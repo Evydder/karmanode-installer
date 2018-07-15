@@ -35,6 +35,7 @@ GITREPO="https://github.com/theohmproject/ohmcoin.git"
 getblockcount="`curl -s http://explore.ohmcoin.org/api/getblockcount`"
 PORT="52020"
 externalip="`curl -s http://whatismyip.akamai.com`"
+blockchainurl="https://github.com/Evydder/karmanode-installer/releases/download/0.01/OHMC_Blockchain_snapshot.zip"
 ##### CHANGABLE VARIABLES #####
 
 RED='\033[0;31m'
@@ -108,10 +109,66 @@ else
 fi
 }
 
-configure () { 
+askforusername(){
+echo "Please enter an rpc username."
+	read rpcuser
+	while true; do
+		read -p "Is This The Correct rpc username : ${rpcuser} ? [Y/N]" yn
+		case $yn in
+			[Yy]* ) break;;
+			[Nn]* ) echo "Please Type In The Correct rpcuser"; read rpcuser;;
+			* ) echo "Please answer yes or no.";;
+		esac
+	done
+}
+
+askforpassword(){
+echo "Please enter an rpc password."
+	read rpcpassword
+	while true; do
+		read -p "Is This The Correct rpc password : ${rpcpassword} ? [Y/N]" yn
+		case $yn in
+			[Yy]* ) break;;
+			[Nn]* ) echo "Please Type In The Correct rpc password"; read rpcpassword;;
+			* ) echo "Please answer yes or no.";;
+		esac
+	done
+	rpcpassword=`echo rpcpassword=$rpcpassword`
+}
+
+configure() { 
 clear
-rpcuser="ohmrpc"
-rpcpassword=`$daemon 2>&1 | grep '^rpcpassword='`
+rpcuser=''
+rpcpassword=''
+#had issue where wallet would fail first check and would cause the user to run the script twice
+echo "Staring wallet to gen config files"
+echo ""
+echo -e "${RED}Ignore the message below as this issue is fixed after the wallet is loaded the first time"
+echo ""
+start_daemon
+echo ""
+echo -e "${RED}Waiting on wallet to load"
+sleep 10
+stop_daemon
+clear
+while true; do
+		echo "If you are running multiple nodes select yes"
+		read -p "Would you like to provide an username? [Y/N]" yn
+		case $yn in
+			[Yy]* ) askforusername;break;;
+			[Nn]* ) rpcuser="ohmrpc"; break;;
+			* ) echo "Please answer yes or no.";;
+		esac
+	done
+while true; do
+		read -p "Would you like to provide an rpc password? [Y/N]" yn
+		case $yn in
+			[Yy]* ) askforpassword;break;;
+			[Nn]* ) rpcpassword=`$daemon 2>&1 | grep '^rpcpassword='`; break;;
+			* ) echo "Please answer yes or no.";;
+		esac
+	done 
+
 echo -e "${RED}$daemon has been run once, it should have created the .$datadir directory and generated the rpcpassword${NC}"
 owner=$(chown $currentuser:$currentuser $homedir/.$datadir -R)
 echo $owner
@@ -137,6 +194,9 @@ if [ -f $homedir/.$datadir/$datadir.conf ]; then
 	#echo -e -e externalip= >> ~/.$datadir/$datadir.conf & wait $!
 	#echo -e -e karmanodeaddr= >> ~/.$datadir/$datadir.conf & wait $!
 	echo karmanodeprivkey= >> $homedir/.$datadir/$datadir.conf & wait $!
+	echo "Downloading blockchain"
+	wget $blockchainurl -O $COIN-blockchain.zip
+	unzip -o $COIN-blockchain.zip -d $homedir/.$datadir 
 	sleep 2
 	echo -e "${RED}Your rpcuser is ${GREEN}$rpcuser"
 	echo -e "${RED}Your rpcpassword is ${GREEN}$rpcpassword"
@@ -215,30 +275,14 @@ echo -e "${RED}UFW checked${NC}"
 sleep 2
 echo -e ""
 }
-
 start_karmanode () {
 clear
 	start_daemon
 #ohmcd -daemon
-	sleep 2
-	echo -e "${RED}While waiting for the chain to sync, continue with the following steps	:"
-	sleep 2
-	echo -e "Go to your cold wallet, open Tools > Debug console	"
-	echo -e "enter ${GREEN}karmanode list-conf ${RED}into the console"
-	echo -e ""
-	sleep 2
-	echo -e "You should see your karmanode with a status of ${GREEN}MISSING${RED}"
-	echo -e ""
-	sleep 2
-	echo -e ""
-	echo -e "Then select the Karmanode tab, right-click your karmanode alias"
-	echo -e "click ${GREEN}Start Alias${RED}"
-	echo -e ""
-	sleep 2
-	echo -e -n "Hit enter once you have started the karmanode	:"
-	read -r enter
-	echo -e ""
+	
 	echo -e "The script will now wait for the local wallet to sync with the chain...please wait${NC}"
+	#waiting for daemon to start or carn't get block count
+	sleep 15
 	Getdiff=5
 	IsItSynced() {
 	Checkblockchain=$getblockcount
@@ -260,6 +304,35 @@ clear
 	echo -e "Please wait...."
 	echo -e "----------------------"
 	done
+	echo "Allowing wallet to load"
+	sleep 10
+	while [ `$cli mnsync status | jq -r '.RequestedKarmanodeAssets'` -ne '999' ]
+	do
+	echo "Waiting on Karma node to sync"
+	sleep 2
+	done
+	
+	sleep 2
+	echo -e ""
+	echo -e "Karma node is synced"
+	echo -e ""
+	sleep 2
+	echo -e "Go to your cold wallet, open Tools > Debug console	"
+	echo -e "enter ${GREEN}karmanode list-conf ${RED}into the console"
+	echo -e ""
+	sleep 2
+	echo -e "You should see your karmanode with a status of ${GREEN}MISSING${RED}"
+	echo -e ""
+	sleep 2
+	echo -e ""
+	echo -e "Then select the Karmanode tab, right-click your karmanode alias"
+	echo -e "click ${GREEN}Start Alias${RED}"
+	echo -e ""
+	sleep 2
+	echo -e -n "Hit enter once you have started the karmanode	:"
+	read -r enter
+	echo -e ""
+	
 	echo -e ""
 	echo -e "Local wallet is now in sync${NC}"
 	stop_daemon
@@ -269,7 +342,7 @@ clear
 	sleep 2
 	start_daemon
     	echo -e "${RED}Please wait 10 seconds"
-	sleep 10
+	sleep 15
 	echo -e "Running mnsync reset${NC}"
 	$cli mnsync reset
 	echo -e "${RED}This should force the wallet to grab the latest list of current running karmanodes"
@@ -448,7 +521,9 @@ apt-get install -yq \
 	libevent-dev \
 	software-properties-common \
 	$libzmq \
-	libminiupnpc-dev &&
+	libminiupnpc-dev \
+	unzip	\
+	jq &&
 if [ ! -f "/etc/apt/sources.list.d/bitcoin-bitcoin-trusty.list" ] || [ ! -f "/etc/apt/sources.list.d/bitcoin-ubuntu-bitcoin-xenial.list" ] || [ ! -f "/etc/apt/sources.list.d/bitcoin-ubuntu-bitcoin-bionic.list" ]
 then 
    	add-apt-repository ppa:bitcoin/bitcoin -y
